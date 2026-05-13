@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Retail AI - Predicción Avanzada</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .controls { display: flex; gap: 1rem; justify-content: center; margin: 1rem 0; flex-wrap: wrap;}
+        .btn { background: #334155; color: white; border: none; padding: 0.5rem 1.5rem; border-radius: 6px; cursor: pointer; transition: 0.2s; font-family: inherit; font-weight: 600;}
+        .btn.active, .btn:hover { background: var(--primary); box-shadow: 0 0 10px rgba(99, 102, 241, 0.5);}
+        
+        .chart-container { margin-bottom: 2rem; }
+        
+        /* Heatmap Grid */
+        .heatmap-container { display: flex; flex-direction: column; gap: 4px; align-items: center; overflow-x: auto; padding: 1rem;}
+        .week-grid { display: grid; grid-template-columns: repeat(7, 35px); gap: 6px; }
+        .day-box { 
+            width: 35px; height: 35px; border-radius: 6px; background: #1e293b; 
+            display: flex; align-items: center; justify-content: center; 
+            font-size: 0.8rem; color: white; cursor: help; transition: transform 0.1s;
+        }
+        .day-box:hover { transform: scale(1.1); border: 1px solid white; z-index: 10; position: relative;}
+        .day-label { width: 35px; text-align: center; font-size: 0.8rem; font-weight: bold; color: #94a3b8; }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <a href="index.html" class="logo">RetailAI</a>
+        <div class="nav-links">
+            <a href="index.html">Inicio</a>
+            <a href="simulacion.html">Simulación</a>
+            <a href="historico.html">Histórico</a>
+            <a href="prediccion.html" class="active">Predicción</a>
+            <a href="respaldo_basket.html" style="font-size: 0.8rem; opacity: 0.5;" title="Recomendador IA">(IA)</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <h1 class="text-center">Panel Analítico Avanzado</h1>
+        <p class="text-center text-muted">Explora tus ventas por tiempo y prevé el comportamiento futuro.</p>
+
+        <div class="controls">
+            <button class="btn" onclick="setTimeframe('day')">Día</button>
+            <button class="btn active" onclick="setTimeframe('week')">Semana</button>
+            <button class="btn" onclick="setTimeframe('month')">Mes</button>
+            <button class="btn" onclick="setTimeframe('year')">Año</button>
+        </div>
+
+        <div class="grid">
+            <!-- Gráfico 1: Histórico -->
+            <div class="card chart-container" style="grid-column: span 1">
+                <h3>📉 Histórico Real</h3>
+                <div style="position: relative; height: 250px; width: 100%;">
+                    <canvas id="historyChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Gráfico 2: Predicción Integrada -->
+            <div class="card chart-container" style="grid-column: span 1">
+                <h3>🔮 Proyección a Futuro</h3>
+                <div style="position: relative; height: 250px; width: 100%;">
+                    <canvas id="integratedChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Gráfico 3: Calendario Heatmap -->
+        <div class="card chart-container">
+            <h3 class="text-center">📅 Mapa de Calor Mensual</h3>
+            <p class="text-center text-muted" style="font-size:0.9rem">Último mes registrado. Verde más oscuro indica mayor tráfico.</p>
+            <div id="heatmap" class="heatmap-container">
+                <p class="text-muted">Cargando calendario...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let apiData = null;
+        let historyChart = null;
+        let integratedChart = null;
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const res = await fetch('http://localhost:8000/api/forecast');
+                apiData = await res.json();
+                
+                setTimeframe('week'); // Default view
+                renderHeatmap(apiData.heatmap);
+            } catch (e) {
+                console.error(e);
+                document.querySelector('.container').innerHTML += '<p style="color:#ef4444; text-align:center; margin-top:2rem;">Error cargando datos analíticos. ¿Reiniciaste server.py?</p>';
+            }
+        });
+
+        function setTimeframe(tf) {
+            if (!apiData) return;
+            
+            // UI Update
+            document.querySelectorAll('.controls .btn').forEach(btn => {
+                btn.classList.remove('active');
+                if(btn.innerText.toLowerCase().includes(tf === 'day' ? 'día' : tf === 'week' ? 'semana' : tf === 'month' ? 'mes' : 'año')) {
+                    btn.classList.add('active');
+                }
+            });
+
+            const data = apiData[tf];
+            renderCharts(data, tf);
+        }
+
+        function renderCharts(data, tf) {
+            // Configurar Chart 1: Histórico Puro
+            if(historyChart) historyChart.destroy();
+            const ctx1 = document.getElementById('historyChart').getContext('2d');
+            historyChart = new Chart(ctx1, {
+                type: 'bar',
+                data: {
+                    labels: data.history.dates,
+                    datasets: [{
+                        label: 'Nº Facturas (Real)',
+                        data: data.history.counts,
+                        backgroundColor: '#6366f1',
+                        borderRadius: 4
+                    }]
+                },
+                options: getChartOptions()
+            });
+
+            // Configurar Chart 2: Integrado (Histórico + Predicción)
+            if(integratedChart) integratedChart.destroy();
+            const ctx2 = document.getElementById('integratedChart').getContext('2d');
+            
+            // Para que la línea conecte
+            const connectedPrediction = [
+                ...Array(data.history.counts.length - 1).fill(null), 
+                data.history.counts[data.history.counts.length-1], 
+                ...data.prediction.counts
+            ];
+
+            integratedChart = new Chart(ctx2, {
+                type: 'line',
+                data: {
+                    labels: [...data.history.dates, ...data.prediction.dates],
+                    datasets: [
+                        {
+                            label: 'Pasado (Real)',
+                            data: [...data.history.counts, ...Array(data.prediction.counts.length).fill(null)],
+                            borderColor: '#3b82f6',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            fill: true,
+                            tension: 0.3
+                        },
+                        {
+                            label: 'Predicción IA',
+                            data: connectedPrediction,
+                            borderColor: '#10b981',
+                            borderDash: [5, 5],
+                            tension: 0.3,
+                            pointBackgroundColor: '#10b981',
+                            pointRadius: 4
+                        }
+                    ]
+                },
+                options: getChartOptions()
+            });
+        }
+
+        function getChartOptions() {
+            return {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { labels: { color: '#f8fafc', font: { family: 'Outfit' } } }
+                },
+                scales: {
+                    y: {
+                        title: { display: false },
+                        ticks: { color: '#94a3b8' },
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        beginAtZero: true
+                    },
+                    x: {
+                        ticks: { color: '#94a3b8', maxRotation: 45, minRotation: 45 },
+                        grid: { color: 'rgba(255,255,255,0.05)' }
+                    }
+                }
+            };
+        }
+
+        function renderHeatmap(heatmap) {
+            if(!heatmap || !heatmap.data.length) {
+                document.getElementById('heatmap').innerHTML = '<p class="text-muted">No hay datos para el mapa de calor.</p>';
+                return;
+            }
+            
+            const container = document.getElementById('heatmap');
+            const maxCount = Math.max(...heatmap.data.map(d => d.count));
+            
+            const monthNames = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+            
+            let html = `<h4 style="margin: 0 0 1rem 0; color: #a5b4fc;">Mes: ${monthNames[heatmap.month - 1]} ${heatmap.year}</h4>`;
+            
+            html += '<div class="week-grid" style="margin-bottom: 4px;">';
+            ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].forEach(day => {
+                html += `<div class="day-label">${day}</div>`;
+            });
+            html += '</div>';
+
+            html += '<div class="week-grid">';
+            
+            // Rellenar días vacíos al principio del mes
+            const firstDayData = heatmap.data.find(d => d.day === 1);
+            if(firstDayData) {
+                const emptyDays = firstDayData.weekday; 
+                for(let i = 0; i < emptyDays; i++) {
+                    html += `<div class="day-box" style="background: transparent;"></div>`;
+                }
+            }
+
+            // Pintar los cuadritos
+            heatmap.data.forEach(d => {
+                const intensity = maxCount > 0 ? (d.count / maxCount) : 0;
+                // Paleta de colores GitHub-style: verde claro a verde muy oscuro
+                let bg;
+                if(intensity === 0) bg = '#1e293b';
+                else if(intensity < 0.25) bg = '#0e4429';
+                else if(intensity < 0.50) bg = '#006d32';
+                else if(intensity < 0.75) bg = '#26a641';
+                else bg = '#39d353';
+                
+                html += `<div class="day-box" style="background: ${bg}" title="${d.date}: ${d.count} clientes">${d.day}</div>`;
+            });
+
+            html += '</div>';
+            container.innerHTML = html;
+        }
+    </script>
+</body>
+</html>

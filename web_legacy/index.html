@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Retail AI - Inicio</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <a href="index.html" class="logo">RetailAI</a>
+        <div class="nav-links">
+            <a href="index.html" class="active">Inicio</a>
+            <a href="simulacion.html">Simulación</a>
+            <a href="historico.html">Histórico</a>
+            <a href="prediccion.html">Predicción</a>
+            <a href="respaldo_basket.html" style="font-size: 0.8rem; opacity: 0.5;" title="Recomendador IA">(IA)</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <h1 class="text-center">Resumen de Tiendas y Productos</h1>
+        
+        <h2 class="mt-2">📍 Nuestras Tiendas</h2>
+        <div id="stores-container" class="grid">
+            <p class="text-muted">Cargando tiendas...</p>
+        </div>
+
+        <h2 class="mt-2">🔥 Productos Destacados (Más Vendidos)</h2>
+        <div id="top-products-container" class="grid">
+            <p class="text-muted">Cargando productos destacados...</p>
+        </div>
+
+        <h2 class="mt-2">💎 Recomendaciones y Ofertas</h2>
+        <div id="offers-container" class="grid">
+            <p class="text-muted">Cargando ofertas...</p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const res = await fetch('http://localhost:8000/api/home');
+                const data = await res.json();
+                
+                // Tiendas
+                document.getElementById('stores-container').innerHTML = data.stores.map(store => `
+                    <div class="card">
+                        <h3>Sucursal ${store}</h3>
+                        <p class="text-muted">Abierto hoy</p>
+                    </div>
+                `).join('');
+                
+                // Productos Top
+                document.getElementById('top-products-container').innerHTML = data.top_products.map((p, i) => `
+                    <div class="card">
+                        <span class="badge">#${i+1}</span>
+                        <h3>${p.product}</h3>
+                        <p>Ventas totales: <strong style="color:white">${p.total_qty}</strong> uds.</p>
+                    </div>
+                `).join('');
+                
+                // Ofertas
+                document.getElementById('offers-container').innerHTML = data.offers.map(o => `
+                    <div class="card" style="border-color: rgba(16, 185, 129, 0.4);">
+                        <span class="badge" style="background:#10b981">¡Oferta!</span>
+                        <h3>${o.product}</h3>
+                        <div class="price">$${o.price.toFixed(2)}</div>
+                        <p class="text-muted">En sucursal ${o.branch}</p>
+                    </div>
+                `).join('');
+                
+            } catch (e) {
+                console.error(e);
+                document.querySelectorAll('.grid').forEach(g => g.innerHTML = '<p style="color:#ef4444">Error cargando datos. Asegúrate de que server.py esté corriendo y reiniciado.</p>');
+            }
+        });
+    </script>
+</body>
+</html>

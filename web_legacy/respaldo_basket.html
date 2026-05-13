@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-width=1.0">
+    <title>Recomendador Retail Basket AI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: #0b0f19;
+            color: #f8fafc;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            background: rgba(22, 30, 45, 0.8);
+            padding: 2rem;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 600px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        h1 { text-align: center; color: #a5b4fc; margin-bottom: 2rem; }
+        
+        .products-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+            gap: 10px;
+            margin-bottom: 1.5rem;
+        }
+        
+        .product-checkbox {
+            display: none;
+        }
+        
+        .product-label {
+            display: block;
+            background: #1e293b;
+            border: 1px solid #334155;
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            user-select: none;
+        }
+        
+        .product-checkbox:checked + .product-label {
+            background: #4f46e5;
+            border-color: #818cf8;
+            box-shadow: 0 0 10px rgba(79, 70, 229, 0.5);
+        }
+        
+        button {
+            width: 100%;
+            background: #6366f1;
+            color: white;
+            border: none;
+            padding: 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 1.1rem;
+            margin-top: 1rem;
+            transition: background 0.3s;
+        }
+        button:hover { background: #4f46e5; }
+        
+        /* Animación del Perceptrón */
+        .animation-container {
+            display: none;
+            height: 150px;
+            margin: 2rem 0;
+            position: relative;
+        }
+        
+        .node {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #334155;
+            position: absolute;
+            box-shadow: 0 0 0 rgba(99, 102, 241, 0);
+        }
+        
+        .line {
+            position: absolute;
+            height: 2px;
+            background: #334155;
+            transform-origin: left center;
+        }
+        
+        /* Clases activas para la animación controlada por JS */
+        .node.active {
+            background: #4f46e5;
+            box-shadow: 0 0 15px #818cf8;
+            transition: all 0.3s;
+        }
+        .node.output-active {
+            background: #10b981;
+            box-shadow: 0 0 20px #34d399;
+            transform: scale(1.5);
+            transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .line.active {
+            background: linear-gradient(90deg, #4f46e5, #10b981);
+            box-shadow: 0 0 5px #4f46e5;
+            transition: background 0.3s;
+        }
+
+        #result {
+            margin-top: 1.5rem;
+            padding: 1.5rem;
+            border-radius: 8px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            text-align: center;
+            display: none;
+            animation: fadeIn 0.5s forwards;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .category-badge {
+            display: inline-block;
+            background: #3b82f6;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛒 Análisis de Canasta</h1>
+        <p style="text-align: center; color: #94a3b8; margin-bottom: 2rem;">Selecciona los productos que estás comprando para que la Inteligencia Artificial analice el patrón y sugiera un producto extra.</p>
+        
+        <form id="predictForm">
+            <div id="products-container" class="products-grid">
+                <p>Cargando catálogo del servidor...</p>
+            </div>
+            
+            <div style="margin-bottom: 1rem; width: 100%;">
+                <label for="model_choice" style="display:block; margin-bottom: 0.5rem; color:#94a3b8;">Modelo de IA:</label>
+                <select id="model_choice" style="width: 100%; padding: 0.8rem; border-radius: 8px; background: #1e293b; color: white; border: 1px solid #334155; font-family: inherit;">
+                    <option value="perceptron">Perceptrón Simple</option>
+                    <option value="mlp">Perceptrón Multicapa (MLP)</option>
+                    <option value="som">Mapas Auto-organizados (SOM)</option>
+                    <option value="transformer">Micro-Transformer (PyTorch)</option>
+                </select>
+            </div>
+            
+            <button type="submit" id="submitBtn">🔮 Recomendar Extra</button>
+        </form>
+
+        <div class="animation-container" id="animationArea">
+            <!-- Nodos de la red neuronal dibujados por JS -->
+        </div>
+
+        <div id="result">
+            <h3 style="margin:0 0 0.5rem 0; color: #a5b4fc;">Sugerencia de la IA:</h3>
+            <div id="recommended_product" style="font-size: 2.2rem; font-weight: bold; color: #10b981; margin-bottom: 0.5rem;"></div>
+            <div class="category-badge" id="recommended_category"></div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
