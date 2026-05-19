@@ -8,7 +8,7 @@ import os
 import torch
 import torch.nn as nn
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List
+from typing import List, Optional
 
 app = FastAPI(title="Recomendador Retail API")
 
@@ -47,6 +47,13 @@ class CustomerProfile(BaseModel):
     cart: List[str]
     model_choice: str
 
+class SimulationProfile(BaseModel):
+    num_personas: int = 1
+    include_aseo_hogar: bool = False
+    m2_hogar: Optional[int] = 50
+    include_aseo_personal: bool = False
+    genero: Optional[str] = "M"
+
 # Diccionario para cargar los modelos en memoria
 models = {}
 
@@ -54,17 +61,17 @@ def load_models():
     perceptron_path = "../export/perceptron_basket.pkl"
     if os.path.exists(perceptron_path):
         models["perceptron"] = joblib.load(perceptron_path)
-        print("✅ Modelo Perceptrón (Basket) cargado correctamente en memoria.")
+        print("Modelo Perceptron (Basket) cargado correctamente en memoria.")
     
     mlp_path = "../export/mlp_basket.pkl"
     if os.path.exists(mlp_path):
         models["mlp"] = joblib.load(mlp_path)
-        print("✅ Modelo MLP (Basket) cargado correctamente en memoria.")
+        print("Modelo MLP (Basket) cargado correctamente en memoria.")
         
     som_path = "../export/som_basket.pkl"
     if os.path.exists(som_path):
         models["som"] = joblib.load(som_path)
-        print("✅ Modelo SOM (Basket) cargado correctamente en memoria.")
+        print("Modelo SOM (Basket) cargado correctamente en memoria.")
         
     transformer_path = "../export/transformer_basket.pt"
     transformer_meta = "../export/transformer_meta.pkl"
@@ -79,7 +86,7 @@ def load_models():
             "meta": meta,
             "all_products": meta['all_products']
         }
-        print("✅ Modelo Micro-Transformer cargado correctamente en memoria.")
+        print("Modelo Micro-Transformer cargado correctamente en memoria.")
 
 # Usar el evento de inicio correcto
 @app.on_event("startup")
@@ -240,6 +247,117 @@ def api_forecast():
             }
 
         return response
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/historical_peaks")
+def api_historical_peaks():
+    try:
+        df = pd.read_csv("../sales.csv")
+        # Extraer hora
+        df['hour'] = pd.to_datetime(df['time'], format='%H:%M').dt.hour
+        # Agrupar por hora
+        peaks = df.groupby('hour')['invoice_id'].nunique().reset_index()
+        peaks = peaks.sort_values(by='hour')
+        
+        hours = [f"{int(h)}:00" for h in peaks['hour']]
+        counts = [int(c) for c in peaks['invoice_id']]
+        
+        # Más ventas en quincena vs fin de mes (simplificado a dias 1-15 vs 16-31)
+        df['date_obj'] = pd.to_datetime(df['date'], format='mixed', dayfirst=False)
+        df['day'] = df['date_obj'].dt.day
+        df['is_quincena'] = df['day'] <= 15
+        
+        quincena = int(df[df['is_quincena']]['invoice_id'].nunique())
+        fin_mes = int(df[~df['is_quincena']]['invoice_id'].nunique())
+        
+        # Fines de semana vs Entre semana
+        df['is_weekend'] = df['date_obj'].dt.weekday >= 5
+        weekend = int(df[df['is_weekend']]['invoice_id'].nunique())
+        weekday = int(df[~df['is_weekend']]['invoice_id'].nunique())
+        
+        return {
+            "hourly_peaks": {
+                "labels": hours,
+                "data": counts
+            },
+            "quincena_vs_finmes": {
+                "quincena": quincena,
+                "fin_mes": fin_mes
+            },
+            "weekend_vs_weekday": {
+                "weekend": weekend,
+                "weekday": weekday
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/simulate_purchase")
+def api_simulate_purchase(profile: SimulationProfile):
+    try:
+        # Lógica heurística ontológica basada en las variables
+        recomendacion = "Recomendaciones Generales basadas en el Dataset Histórico."
+        actionable = ""
+        productos = []
+
+        # Reglas basadas en productos reales de sales.csv
+        # Abarrotes: Huevo, Tortillas, Arroz, Frijol
+        # Limpieza: Detergente, Papel higiénico
+        # Lácteos: Yogurt, Leche, Queso
+        # Bebidas: Cerveza, Agua embotellada, Jugo, Refresco
+        # Snacks: Sabritas, Galletas
+
+        if profile.num_personas >= 4:
+            actionable += "Para familias numerosas, sugerimos compras por volumen. "
+            # Cálculos de estimación
+            cant_arroz = profile.num_personas * 1
+            cant_frijol = profile.num_personas * 0.5
+            cant_leche = profile.num_personas * 2
+            cant_huevo = profile.num_personas * 0.5 # docenas
+            productos.extend([
+                f"Arroz (Abarrotes) - {cant_arroz} kg", 
+                f"Frijol (Abarrotes) - {cant_frijol} kg", 
+                f"Leche (Lácteos) - {cant_leche} litros", 
+                f"Huevo (Abarrotes) - {cant_huevo} docenas"
+            ])
+        else:
+            actionable += "Para compras individuales o de pareja, se sugieren porciones justas. "
+            cant_tortillas = profile.num_personas * 1
+            cant_pan = profile.num_personas * 1
+            cant_yogurt = profile.num_personas * 2
+            productos.extend([
+                f"Tortillas (Abarrotes) - {cant_tortillas} kg", 
+                f"Pan blanco (Panadería) - {cant_pan} paquetes", 
+                f"Yogurt (Lácteos) - {cant_yogurt} piezas"
+            ])
+
+        if profile.include_aseo_hogar and profile.m2_hogar:
+            cant_detergente = max(1, round(profile.m2_hogar / 50))
+            cant_papel = profile.num_personas * 2 + round(profile.m2_hogar / 100)
+            actionable += f"Tu hogar de {profile.m2_hogar}m² requiere mantenimiento constante. "
+            productos.extend([
+                f"Detergente (Limpieza) - {cant_detergente} Litros/Cajas", 
+                f"Papel higiénico (Limpieza) - {cant_papel} rollos"
+            ])
+            
+        if profile.include_aseo_personal and profile.genero:
+            cant_bebidas = profile.num_personas * 1
+            cant_snacks = profile.num_personas * 1
+            if profile.genero.upper() in ["M", "MUJER", "FEMENINO"]:
+                actionable += "Añadimos sugerencias de bebidas y snacks perfiladas para mujer."
+                productos.extend([f"Agua embotellada (Bebidas) - {cant_bebidas}L", f"Galletas (Snacks) - {cant_snacks} paquetes"])
+            elif profile.genero.upper() in ["H", "HOMBRE", "MASCULINO"]:
+                actionable += "Añadimos sugerencias de bebidas y snacks perfiladas para hombre."
+                productos.extend([f"Cerveza (Bebidas) - {cant_bebidas * 2} latas", f"Sabritas (Snacks) - {cant_snacks} paquetes"])
+            else:
+                actionable += "Añadimos sugerencias genéricas complementarias."
+                productos.extend([f"Pan dulce (Panadería) - {cant_snacks} piezas", f"Queso (Lácteos) - {cant_bebidas} piezas"])
+
+        return {
+            "actionable_insight": actionable,
+            "recommended_products": productos
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
